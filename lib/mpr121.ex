@@ -210,7 +210,7 @@ defmodule Mpr121 do
   end
 
   @doc false
-  def handle_call({ :reset }, state = %{ i2c: i2c }) do
+  def handle_call({ :reset }, _, state = %{ i2c: i2c }) do
     do_reset_mpr121(i2c)
     { :reply, true, state }
   end
