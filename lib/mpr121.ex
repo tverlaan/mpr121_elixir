@@ -344,7 +344,7 @@ if Mix.env != :prod do
       Logger.info("write_read #{dump data}")
       result = 0x24..(0x24+len-1) |> Enum.into([])
       Logger.info("\t\t=> #{inspect result}")
-      result
+      to_string(result)
     end
   end
 end
