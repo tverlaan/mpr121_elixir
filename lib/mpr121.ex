@@ -83,10 +83,6 @@ defmodule Mpr121 do
     # Enable all electrodes. Start with first 5 bits of baseline tracking
     { @ecr,      0x8F }
   ]
-    
-  
-
-  defstruct i2c: nil, options: []
 
 
   #######
@@ -96,7 +92,7 @@ defmodule Mpr121 do
   @doc """
   Start up an instance of the Mpr121 interface. 
 
-      Mpr121.start_link(bus, address \\ 0x5a, options \\ [])
+      Mpr121.start_link([bus: bus, address: address \\ 0x5a, options: options \\ []])
 
   * `bus` is the name of the i2c device to use (typically "i2c-1").
 
@@ -111,10 +107,17 @@ defmodule Mpr121 do
   just a leaky abstraction.)
   """
 
-  @spec start_link(bus_name(), byte(), list( {atom(), any() })) :: { :ok, pid() }
+  @spec start_link(list( {atom(), any() })) :: { :ok, pid() }
   
-  def start_link(bus, address \\ @i2caddr_default, options \\ []) do
-    GenServer.start(__MODULE__, {bus, address, options})
+  def start_link(opts) do
+    bus = opts[:bus] || raise "Please make sure to specify `bus` as it is required"
+    address = opts[:address] || @i2caddr_default
+    options = opts[:options] || []
+
+    {:ok, i2c} = I2C.start_link(bus, address, options)
+    reset(i2c)
+
+    {:ok, i2c}
   end
 
   @doc """
@@ -126,7 +129,8 @@ defmodule Mpr121 do
   @spec reset(pid()) :: any()
   
   def reset(i2c) do
-    GenServer.call(i2c, { :reset })
+    do_reset_mpr121(i2c)
+    true
   end
   
   @doc """
@@ -137,7 +141,8 @@ defmodule Mpr121 do
   @spec touch_state_all(pid()) :: 0..0x0fff
   
   def touch_state_all(i2c) do
-    GenServer.call(i2c, { :touch_state_all })
+    use Bitwise
+    do_retry_wr(i2c, << @touchstatus_l >>, 2) &&& 0x0FFF
   end
     
   @doc """
@@ -163,7 +168,8 @@ defmodule Mpr121 do
   
   def set_thresholds(i2c, touch, release)
   when touch in 0..255 and release in 0..255 do
-    GenServer.call(i2c, { :set_thresholds, touch, release })
+    do_set_thresholds(i2c, touch, release)
+    true
   end
 
   @doc """
@@ -175,7 +181,7 @@ defmodule Mpr121 do
 
   def filtered_data(i2c, pin)
   when pin in 0..11 do
-    GenServer.call(i2c, { :filtered_data, pin })
+    do_retry_wr(i2c, << @filtdata_0l + pin*2 >>, 2)
   end
     
   @doc """
@@ -187,61 +193,10 @@ defmodule Mpr121 do
   
   def baseline_data(i2c, pin)
   when pin in 0..11 do
-    GenServer.call(i2c, { :baseline_data, pin })
-  end
-    
-
-  ##################
-  # Implementation #
-  ##################
-
-  @doc false
-  def init({bus, address, options}) do
-    { :ok, i2c } = I2C.start_link(bus, address)
-    state = %__MODULE__{i2c: i2c, options: options}
-    Process.send_after(self(), :reset, 0)
-    { :ok, state }
-  end
-
-  @doc false
-  def handle_info(:reset, state = %{ i2c: i2c }) do
-    do_reset_mpr121(i2c)
-    { :noreply, state }
-  end
-
-  @doc false
-  def handle_call({ :reset }, _, state = %{ i2c: i2c }) do
-    do_reset_mpr121(i2c)
-    { :reply, true, state }
-  end
-  
-  
-  @doc false
-  def handle_call({ :set_thresholds, touch, release }, _, state = %{ i2c: i2c }) do
-    do_set_thresholds(i2c, touch, release)
-    { :reply, true, state }
-  end
-
-  @doc false
-  def handle_call({ :touch_state_all }, _, state = %{ i2c: i2c }) do
     use Bitwise
-    result = do_retry_wr(i2c, << @touchstatus_l >>, 2) &&& 0x0FFF
-    { :reply, result, state }
+    do_retry_wr(i2c, << @baseline_0 + pin >>, 1) <<< 2
   end
-    
-  @doc false
-  def handle_call({ :filtered_data, pin }, _, state = %{ i2c: i2c }) do
-    result = do_retry_wr(i2c, << @filtdata_0l + pin*2 >>, 2)
-    { :reply, result, state }
-  end
-    
-  @doc false
-  def handle_call({ :baseline_data, pin }, _, state = %{ i2c: i2c }) do
-    use Bitwise
-    result = do_retry_wr(i2c, << @baseline_0 + pin >>, 1) <<< 2
-    { :reply, result, state }
-  end
-    
+
   ###########
   # Helpers #
   ###########
@@ -318,7 +273,7 @@ defmodule Mpr121 do
   end
   
   @spec do_set_combined_flag(flag :: as_boolean(any)) :: any()
-  def do_set_combined_flag(flag) do
+  defp do_set_combined_flag(flag) do
     flag_char = if flag, do: @combined_flag_yes, else: @combined_flag_no
     File.chmod!(@combined_flag_path, 0o666)
     File.write!(@combined_flag_path, flag_char)
@@ -331,8 +286,8 @@ if Mix.env != :prod do
     import Mpr121, only: [ dump: 1]
     require Logger
     
-    def start_link(a, b) do
-      Logger.info("mock i2c.start_link(#{inspect a}, #{inspect b})")
+    def start_link(a, b, c \\ []) do
+      Logger.info("mock i2c.start_link(#{inspect a}, #{inspect b}, #{inspect c})")
       { :ok, :pid }
     end
 

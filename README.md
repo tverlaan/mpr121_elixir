@@ -13,7 +13,7 @@
   the MPR121 (which defaults to 0x5a) and options.
 
   ~~~ elixir
-  { :ok, device } = Mpr121.start_link("i2c-1")
+  { :ok, device } = Mpr121.start_link(bus: "i2c-1")
   
   bits = Mpr121.touch_state_all(device)  # => 12 bits, one per touch channel
   
